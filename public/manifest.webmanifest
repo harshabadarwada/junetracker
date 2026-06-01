@@ -1,0 +1,19 @@
+{
+  "name": "31 Days of Discipline",
+  "short_name": "Discipline",
+  "description": "A premium productivity operating system for tracking discipline, habits, focus, health, and consistency.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#030405",
+  "theme_color": "#030405",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

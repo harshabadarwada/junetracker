@@ -17,6 +17,6 @@
   <rect width="128" height="128" fill="#030405"/>
   <rect x="18" y="18" width="92" height="92" rx="30" fill="url(#bg)" filter="url(#shadow)"/>
   <rect x="18" y="18" width="92" height="92" rx="30" fill="url(#glow)"/>
-  <path fill="#031008" d="M38 35h17v23h18V35h17v58H73V70H55v23H38V35Z"/>
+  <path fill="#031008" d="M28 36h13v21h16V36h13v56H57V69H41v23H28V36Zm48 0h13l7 33 7-33h13l-13 56H90L76 36Z"/>
   <path fill="#FFFFFF" fill-opacity=".55" d="M31 25c11-5 27-8 48-6-22 3-37 10-45 22-5 7-13 2-3-16Z"/>
 </svg>

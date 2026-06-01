@@ -1,7 +1,7 @@
 {
-  "name": "31 Days of Discipline",
-  "short_name": "Discipline",
-  "description": "A premium productivity operating system for tracking discipline, habits, focus, health, and consistency.",
+  "name": "Harsha's World",
+  "short_name": "Harsha",
+  "description": "A personal discipline dashboard for priorities, habits, focus, health, and consistency.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

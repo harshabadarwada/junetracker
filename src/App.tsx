@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import { motion } from 'framer-motion'
 import {
   Activity,
@@ -9,7 +9,6 @@ import {
   Brain,
   CalendarDays,
   Check,
-  Download,
   Dumbbell,
   Flame,
   Moon,
@@ -66,12 +65,14 @@ type Reminder = {
 type DisciplineState = {
   entries: Record<number, DayEntry>
   reminders: Reminder[]
+  priorities: string[]
   selectedDay: number
   toggleTask: (day: number, taskId: string) => void
   setSelectedDay: (day: number) => void
   setNotes: (day: number, notes: string) => void
   setMood: (day: number, mood: Mood) => void
   updateReminder: (id: string, updates: Partial<Reminder>) => void
+  updatePriority: (index: number, value: string) => void
 }
 
 const tasks: DisciplineTask[] = [
@@ -167,6 +168,8 @@ const defaultReminders: Reminder[] = [
   { id: 'sleep', label: 'Sleep', time: '22:00', enabled: true },
 ]
 
+const defaultPriorities = ['Deep Work', 'Exercise', 'Sleep Early']
+
 const moods: Mood[] = ['locked', 'focused', 'calm', 'tired', 'reset']
 const totalPoints = tasks.reduce((sum, task) => sum + task.points, 0)
 const days = Array.from({ length: 31 }, (_, index) => index + 1)
@@ -239,6 +242,7 @@ const useDisciplineStore = create<DisciplineState>()(
     (set) => ({
       entries: createInitialEntries(),
       reminders: defaultReminders,
+      priorities: defaultPriorities,
       selectedDay: today,
       toggleTask: (day, taskId) =>
         set((state) => {
@@ -275,6 +279,12 @@ const useDisciplineStore = create<DisciplineState>()(
             reminder.id === id ? { ...reminder, ...updates } : reminder,
           ),
         })),
+      updatePriority: (index, value) =>
+        set((state) => ({
+          priorities: state.priorities.map((priority, priorityIndex) =>
+            priorityIndex === index ? value : priority,
+          ),
+        })),
     }),
     {
       name: 'discipline-os-storage',
@@ -309,49 +319,19 @@ const calculateStreaks = (entries: Record<number, DayEntry>) => {
   return { current, longest }
 }
 
-const requestNotifications = async () => {
-  if (!('Notification' in window)) return 'unsupported'
-  if (Notification.permission === 'granted') return 'granted'
-  return Notification.requestPermission()
-}
-
-const scheduleBrowserReminders = (reminders: Reminder[]) => {
-  if (!('Notification' in window) || Notification.permission !== 'granted') return
-
-  reminders
-    .filter((reminder) => reminder.enabled)
-    .forEach((reminder) => {
-      const [hours, minutes] = reminder.time.split(':').map(Number)
-      const reminderAt = new Date()
-      reminderAt.setHours(hours, minutes, 0, 0)
-      const delay = reminderAt.getTime() - Date.now()
-
-      if (delay > 0 && delay < 24 * 60 * 60 * 1000) {
-        window.setTimeout(() => {
-          new Notification(`31 Days: ${reminder.label}`, {
-            body: 'A discipline checkpoint is ready. Keep the streak alive.',
-            icon: '/favicon.svg',
-          })
-        }, delay)
-      }
-    })
-}
-
 function App() {
   const {
     entries,
     reminders,
+    priorities,
     selectedDay,
     toggleTask,
     setSelectedDay,
     setNotes,
     setMood,
     updateReminder,
+    updatePriority,
   } = useDisciplineStore()
-  const [notificationState, setNotificationState] = useState(
-    'Notification' in window ? Notification.permission : 'unsupported',
-  )
-  const [installPrompt, setInstallPrompt] = useState<Event | null>(null)
 
   const selectedEntry = getEntry(entries, selectedDay)
   const selectedScore = scoreDay(selectedEntry)
@@ -408,33 +388,6 @@ function App() {
   const missedTasks = tasks.filter((task) => !selectedEntry.completed.includes(task.id))
   const quote = quotes[today % quotes.length]
 
-  useEffect(() => {
-    const handleBeforeInstallPrompt = (event: Event) => {
-      event.preventDefault()
-      setInstallPrompt(event)
-    }
-
-    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt)
-    return () => window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt)
-  }, [])
-
-  useEffect(() => {
-    scheduleBrowserReminders(reminders)
-  }, [reminders, notificationState])
-
-  const handleNotificationRequest = async () => {
-    const permission = await requestNotifications()
-    setNotificationState(permission)
-    scheduleBrowserReminders(reminders)
-  }
-
-  const handleInstall = async () => {
-    if (!installPrompt) return
-    const promptEvent = installPrompt as Event & { prompt: () => Promise<void> }
-    await promptEvent.prompt()
-    setInstallPrompt(null)
-  }
-
   return (
     <main className="app-shell">
       <section className="wallpaper-panel" aria-label="Dynamic discipline dashboard">
@@ -444,27 +397,12 @@ function App() {
         <nav className="topbar">
           <div className="brand-mark">
             <span className="h-logo" aria-hidden="true">
-              H
+              HW
             </span>
             <span>
-              <strong>H Discipline</strong>
-              <small>31 Days of Discipline</small>
+              <strong>Harsha&apos;s World</strong>
+              <small>Discipline tracker</small>
             </span>
-          </div>
-          <div className="topbar-actions">
-            <button className="ghost-button" onClick={handleNotificationRequest} type="button">
-              <Bell size={16} />
-              {notificationState === 'granted' ? 'Notifications on' : 'Enable reminders'}
-            </button>
-            <button
-              className="ghost-button"
-              disabled={!installPrompt}
-              onClick={handleInstall}
-              type="button"
-            >
-              <Download size={16} />
-              Install PWA
-            </button>
           </div>
         </nav>
 
@@ -493,18 +431,23 @@ function App() {
               </a>
             </div>
 
-            <div className="how-strip" aria-label="How the tracker works">
-              {[
-                ['01', 'Complete routine tasks', 'Each action adds discipline points.'],
-                ['02', 'Score the day', 'Your daily percent is calculated out of 120.'],
-                ['03', 'Color the month', 'The heatmap glows stronger as consistency improves.'],
-              ].map(([step, title, text]) => (
-                <div className="how-card" key={step}>
-                  <span>{step}</span>
-                  <strong>{title}</strong>
-                  <small>{text}</small>
-                </div>
-              ))}
+            <div className="priority-panel" aria-label="Priority pins">
+              <div className="priority-panel-header">
+                <span>Priority pins</span>
+                <small>Saved on this device</small>
+              </div>
+              <div className="priority-pins">
+                {priorities.map((priority, index) => (
+                  <label className="priority-pin" key={`${priority}-${index}`}>
+                    <span>0{index + 1}</span>
+                    <input
+                      aria-label={`Priority ${index + 1}`}
+                      onChange={(event) => updatePriority(index, event.target.value)}
+                      value={priority}
+                    />
+                  </label>
+                ))}
+              </div>
             </div>
           </motion.div>
 

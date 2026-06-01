@@ -1,5 +1,5 @@
-import { useMemo } from 'react'
-import { motion } from 'framer-motion'
+import { useEffect, useMemo, useState } from 'react'
+import { AnimatePresence, motion } from 'framer-motion'
 import {
   Activity,
   AlarmClock,
@@ -182,6 +182,12 @@ const quotes = [
   'Focus is a physical environment, not just a feeling.',
 ]
 
+const timerPresets = [
+  { label: 'Deep focus', minutes: 45 },
+  { label: 'Quick sprint', minutes: 25 },
+  { label: 'Reset break', minutes: 10 },
+]
+
 const completionPresets = [
   ['wake', 'planning', 'movement', 'nutrition', 'deep-work', 'growth', 'evening', 'reading', 'sleep'],
   ['wake', 'planning', 'movement', 'nutrition', 'deep-work', 'growth', 'reading'],
@@ -235,6 +241,13 @@ const getScoreTone = (percent: number) => {
   if (percent >= 50) return 'good'
   if (percent >= 25) return 'average'
   return 'poor'
+}
+
+const formatTimer = (seconds: number) => {
+  const minutes = Math.floor(seconds / 60)
+  const remainingSeconds = seconds % 60
+
+  return `${minutes.toString().padStart(2, '0')}:${remainingSeconds.toString().padStart(2, '0')}`
 }
 
 const useDisciplineStore = create<DisciplineState>()(
@@ -319,6 +332,34 @@ const calculateStreaks = (entries: Record<number, DayEntry>) => {
   return { current, longest }
 }
 
+const requestNotifications = async () => {
+  if (!('Notification' in window)) return 'unsupported'
+  if (Notification.permission === 'granted') return 'granted'
+  return Notification.requestPermission()
+}
+
+const scheduleBrowserReminders = (reminders: Reminder[]) => {
+  if (!('Notification' in window) || Notification.permission !== 'granted') return
+
+  reminders
+    .filter((reminder) => reminder.enabled)
+    .forEach((reminder) => {
+      const [hours, minutes] = reminder.time.split(':').map(Number)
+      const reminderAt = new Date()
+      reminderAt.setHours(hours, minutes, 0, 0)
+      const delay = reminderAt.getTime() - Date.now()
+
+      if (delay > 0 && delay < 24 * 60 * 60 * 1000) {
+        window.setTimeout(() => {
+          new Notification(`Harsha's World: ${reminder.label}`, {
+            body: 'Time to complete this goal and protect the streak.',
+            icon: '/favicon.svg',
+          })
+        }, delay)
+      }
+    })
+}
+
 function App() {
   const {
     entries,
@@ -387,6 +428,48 @@ function App() {
   const completedTasks = tasks.filter((task) => selectedEntry.completed.includes(task.id))
   const missedTasks = tasks.filter((task) => !selectedEntry.completed.includes(task.id))
   const quote = quotes[today % quotes.length]
+  const [activeView, setActiveView] = useState<'today' | 'calendar' | 'stats' | 'settings'>('today')
+  const [commandOpen, setCommandOpen] = useState(false)
+  const [notificationState, setNotificationState] = useState(
+    'Notification' in window ? Notification.permission : 'unsupported',
+  )
+  const [activeTimerIndex, setActiveTimerIndex] = useState(0)
+  const [secondsLeft, setSecondsLeft] = useState(timerPresets[0].minutes * 60)
+  const [timerRunning, setTimerRunning] = useState(false)
+  const activeTimer = timerPresets[activeTimerIndex]
+
+  useEffect(() => {
+    scheduleBrowserReminders(reminders)
+  }, [reminders, notificationState])
+
+  useEffect(() => {
+    if (!timerRunning) return undefined
+
+    const intervalId = window.setInterval(() => {
+      setSecondsLeft((currentSeconds) => {
+        if (currentSeconds <= 1) {
+          setTimerRunning(false)
+          return 0
+        }
+
+        return currentSeconds - 1
+      })
+    }, 1000)
+
+    return () => window.clearInterval(intervalId)
+  }, [timerRunning])
+
+  const handleNotificationRequest = async () => {
+    const permission = await requestNotifications()
+    setNotificationState(permission)
+    scheduleBrowserReminders(reminders)
+  }
+
+  const selectTimer = (index: number) => {
+    setActiveTimerIndex(index)
+    setSecondsLeft(timerPresets[index].minutes * 60)
+    setTimerRunning(false)
+  }
 
   return (
     <main className="app-shell">
@@ -397,7 +480,7 @@ function App() {
         <nav className="topbar">
           <div className="brand-mark">
             <span className="h-logo" aria-hidden="true">
-              HW
+              H
             </span>
             <span>
               <strong>Harsha&apos;s World</strong>
@@ -415,20 +498,27 @@ function App() {
           >
             <p className="eyebrow hero-badge">
               <Sparkles size={14} />
-              Productivity Operating System
+              Personal Operating System
             </p>
-            <h1>Build visible discipline, one deliberate day at a time.</h1>
+            <h1>Your day, locked in one screen.</h1>
             <p className="hero-text">
-              Track a structured routine, convert completion into a score, and watch your month
-              become a living heatmap of consistency.
+              Priorities, discipline score, streaks, and today&apos;s routine in a focused red
+              dashboard.
             </p>
             <div className="hero-actions">
               <button className="primary-button" onClick={() => setSelectedDay(today)} type="button">
                 Log today
               </button>
-              <a className="secondary-button" href="#statistics">
-                View analytics
-              </a>
+              <button
+                className="secondary-button break-button"
+                onClick={() => {
+                  setCommandOpen((open) => !open)
+                  setActiveView('today')
+                }}
+                type="button"
+              >
+                {commandOpen ? 'Hide progress' : 'View progress'}
+              </button>
             </div>
 
             <div className="priority-panel" aria-label="Priority pins">
@@ -519,77 +609,29 @@ function App() {
         </div>
       </section>
 
-      <section className="metrics-grid" aria-label="Key productivity statistics">
+      <nav className="app-tabs" aria-label="App screens">
         {[
-          { label: 'Current Streak', value: `${stats.current} days`, icon: Flame },
-          { label: 'Longest Streak', value: `${stats.longest} days`, icon: Award },
-          { label: 'Productive Days', value: `${stats.productiveDays}/31`, icon: Target },
-          { label: 'Monthly Average', value: `${stats.average}%`, icon: TrendingUp },
-        ].map((metric) => {
-          const Icon = metric.icon
-          return (
-            <motion.article
-              className="metric-card"
-              initial={{ opacity: 0, y: 14 }}
-              key={metric.label}
-              viewport={{ once: true }}
-              whileInView={{ opacity: 1, y: 0 }}
-            >
-              <Icon size={20} />
-              <span>{metric.label}</span>
-              <strong>{metric.value}</strong>
-            </motion.article>
-          )
-        })}
-      </section>
+          ['today', 'Today', Flame],
+          ['calendar', 'Calendar', CalendarDays],
+          ['stats', 'Stats', Activity],
+          ['settings', 'Setup', Target],
+        ].map(([view, label, Icon]) => (
+          <button
+            className={activeView === view ? 'active' : ''}
+            key={view as string}
+            onClick={() => setActiveView(view as typeof activeView)}
+            type="button"
+          >
+            <Icon size={18} />
+            <span>{label as string}</span>
+          </button>
+        ))}
+      </nav>
 
-      <section className="content-grid">
-        <article className="glass-card wide">
-          <div className="section-heading">
-            <div>
-              <p className="eyebrow">Monthly Heatmap</p>
-              <h2>31-day consistency field</h2>
-            </div>
-            <CalendarDays size={24} />
-          </div>
-
-          <div className="heatmap-grid">
-            {days.map((day) => {
-              const score = scoreDay(getEntry(entries, day))
-              const tone = getScoreTone(score.percent)
-              return (
-                <button
-                  className={`day-cell ${tone} ${selectedDay === day ? 'selected' : ''} ${
-                    day === today ? 'today' : ''
-                  }`}
-                  key={day}
-                  onClick={() => setSelectedDay(day)}
-                  type="button"
-                >
-                  <span>{day}</span>
-                  <small>{score.percent}%</small>
-                </button>
-              )
-            })}
-          </div>
-
-          <div className="legend">
-            {[
-              ['poor', 'Red: Poor'],
-              ['average', 'Orange: Average'],
-              ['good', 'Yellow: Good'],
-              ['excellent', 'Light Green: Excellent'],
-              ['perfect', 'Dark Green: Perfect'],
-            ].map(([tone, label]) => (
-              <span key={tone}>
-                <i className={tone} />
-                {label}
-              </span>
-            ))}
-          </div>
-        </article>
-
-        <article className="glass-card day-detail">
+      {activeView === 'today' && (
+        <>
+          <section className="content-grid single-view">
+            <article className="glass-card day-detail">
           <div className="section-heading">
             <div>
               <p className="eyebrow">Day {selectedDay}</p>
@@ -611,6 +653,59 @@ function App() {
                 {mood}
               </button>
             ))}
+          </div>
+
+          <div className="timer-card-wrap" aria-label="Focus timer">
+            <motion.div
+              className="paper-timer-card"
+              drag="x"
+              dragConstraints={{ left: 0, right: 0 }}
+              dragElastic={0.28}
+              whileDrag={{ rotate: -2, scale: 0.98 }}
+            >
+              <div className="paper-timer-top">
+                <span>
+                  <TimerReset size={18} />
+                  {activeTimer.label}
+                </span>
+                <small>Swipe card</small>
+              </div>
+              <strong>{formatTimer(secondsLeft)}</strong>
+              <div className="timer-progress">
+                <span
+                  style={{
+                    width: `${100 - (secondsLeft / (activeTimer.minutes * 60)) * 100}%`,
+                  }}
+                />
+              </div>
+              <div className="timer-actions">
+                <button onClick={() => setTimerRunning((running) => !running)} type="button">
+                  {timerRunning ? 'Pause' : 'Start'}
+                </button>
+                <button
+                  onClick={() => {
+                    setTimerRunning(false)
+                    setSecondsLeft(activeTimer.minutes * 60)
+                  }}
+                  type="button"
+                >
+                  Reset
+                </button>
+              </div>
+            </motion.div>
+
+            <div className="timer-preset-row">
+              {timerPresets.map((preset, index) => (
+                <button
+                  className={activeTimerIndex === index ? 'active' : ''}
+                  key={preset.label}
+                  onClick={() => selectTimer(index)}
+                  type="button"
+                >
+                  {preset.minutes}m
+                </button>
+              ))}
+            </div>
           </div>
 
           <div className="task-list">
@@ -648,9 +743,100 @@ function App() {
             />
           </label>
         </article>
-      </section>
+          </section>
 
-      <section className="content-grid" id="statistics">
+          <div className="command-trigger">
+            <button
+              className="primary-button break-button"
+              onClick={() => setCommandOpen((open) => !open)}
+              type="button"
+            >
+              {commandOpen ? 'Hide progress' : 'View progress'}
+            </button>
+          </div>
+
+          <AnimatePresence>
+            {commandOpen && (
+              <motion.section
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                className="metrics-grid command-reveal"
+                exit={{ opacity: 0, y: -18, scale: 0.96 }}
+                initial={{ opacity: 0, y: 24, scale: 0.96 }}
+                transition={{ duration: 0.38, ease: 'easeOut' }}
+              >
+                {[
+                  { label: 'Current Streak', value: `${stats.current} days`, icon: Flame },
+                  { label: 'Longest Streak', value: `${stats.longest} days`, icon: Award },
+                  { label: 'Productive Days', value: `${stats.productiveDays}/31`, icon: Target },
+                  { label: 'Monthly Average', value: `${stats.average}%`, icon: TrendingUp },
+                ].map((metric) => {
+                  const Icon = metric.icon
+                  return (
+                    <article className="metric-card" key={metric.label}>
+                      <Icon size={20} />
+                      <span>{metric.label}</span>
+                      <strong>{metric.value}</strong>
+                    </article>
+                  )
+                })}
+              </motion.section>
+            )}
+          </AnimatePresence>
+        </>
+      )}
+
+      {activeView === 'calendar' && (
+        <section className="content-grid single-view">
+          <article className="glass-card wide">
+            <div className="section-heading">
+              <div>
+                <p className="eyebrow">Monthly Heatmap</p>
+                <h2>31-day consistency field</h2>
+              </div>
+              <CalendarDays size={24} />
+            </div>
+
+            <div className="heatmap-grid">
+              {days.map((day) => {
+                const score = scoreDay(getEntry(entries, day))
+                const tone = getScoreTone(score.percent)
+                return (
+                  <button
+                    className={`day-cell ${tone} ${selectedDay === day ? 'selected' : ''} ${
+                      day === today ? 'today' : ''
+                    }`}
+                    key={day}
+                    onClick={() => setSelectedDay(day)}
+                    type="button"
+                  >
+                    <span>{day}</span>
+                    <small>{score.percent}%</small>
+                  </button>
+                )
+              })}
+            </div>
+
+            <div className="legend">
+              {[
+                ['poor', 'Red: Poor'],
+                ['average', 'Orange: Average'],
+                ['good', 'Yellow: Good'],
+                ['excellent', 'Light Green: Excellent'],
+                ['perfect', 'Dark Green: Perfect'],
+              ].map(([tone, label]) => (
+                <span key={tone}>
+                  <i className={tone} />
+                  {label}
+                </span>
+              ))}
+            </div>
+          </article>
+        </section>
+      )}
+
+      {activeView === 'stats' && (
+        <>
+          <section className="content-grid" id="statistics">
         <article className="glass-card wide">
           <div className="section-heading">
             <div>
@@ -721,7 +907,28 @@ function App() {
         </article>
       </section>
 
-      <section className="content-grid">
+          <section className="score-grid">
+        {[
+          ['Deep Work Hours', `${stats.deepWorkHours}h`],
+          ['Exercise Days', `${stats.exerciseDays}`],
+          ['Reading Days', `${stats.readingDays}`],
+          ['Sleep Consistency', `${stats.sleepConsistency}%`],
+          ['Discipline Score', `${stats.disciplineScore}`],
+          ['Focus Score', `${stats.focusScore}%`],
+          ['Health Score', `${stats.healthScore}%`],
+          ['Missed Today', `${tasks.length - todayEntry.completed.length}`],
+        ].map(([label, value]) => (
+          <div className="score-tile" key={label}>
+            <span>{label}</span>
+            <strong>{value}</strong>
+          </div>
+        ))}
+      </section>
+        </>
+      )}
+
+      {activeView === 'settings' && (
+        <section className="content-grid">
         <article className="glass-card">
           <div className="section-heading">
             <div>
@@ -757,6 +964,16 @@ function App() {
             <Bell size={24} />
           </div>
           <div className="reminder-list">
+            <button
+              className="notification-enable"
+              onClick={handleNotificationRequest}
+              type="button"
+            >
+              <Bell size={18} />
+              {notificationState === 'granted'
+                ? 'Mobile reminders enabled'
+                : 'Enable mobile reminders'}
+            </button>
             {reminders.map((reminder) => (
               <div className="reminder-row" key={reminder.id}>
                 <label>
@@ -783,26 +1000,14 @@ function App() {
           </div>
         </article>
       </section>
+      )}
 
-      <section className="score-grid">
-        {[
-          ['Deep Work Hours', `${stats.deepWorkHours}h`],
-          ['Exercise Days', `${stats.exerciseDays}`],
-          ['Reading Days', `${stats.readingDays}`],
-          ['Sleep Consistency', `${stats.sleepConsistency}%`],
-          ['Discipline Score', `${stats.disciplineScore}`],
-          ['Focus Score', `${stats.focusScore}%`],
-          ['Health Score', `${stats.healthScore}%`],
-          ['Missed Today', `${tasks.length - todayEntry.completed.length}`],
-        ].map(([label, value]) => (
-          <div className="score-tile" key={label}>
-            <span>{label}</span>
-            <strong>{value}</strong>
-          </div>
-        ))}
-      </section>
-
-      <section className="summary-card">
+      {activeView === 'today' && commandOpen && (
+      <motion.section
+        animate={{ opacity: 1, y: 0 }}
+        className="summary-card"
+        initial={{ opacity: 0, y: 16 }}
+      >
         <div>
           <p className="eyebrow">Selected Day Summary</p>
           <h2>Completed vs missed</h2>
@@ -823,7 +1028,8 @@ function App() {
             </p>
           </div>
         </div>
-      </section>
+      </motion.section>
+      )}
     </main>
   )
 }
